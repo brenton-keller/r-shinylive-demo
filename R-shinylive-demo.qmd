@@ -1,0 +1,96 @@
+---
+title: "Our first r-shinylive Quarto document!"
+filters:
+  - shinylive
+---
+
+```{shinylive-r}
+#| standalone: true
+#| viewerHeight: 800
+
+library(data.table)
+library(stringr)
+
+
+# Define UI for app that draws a histogram ----
+ui <- fluidPage(
+  selectInput("vars_g", "Group by", names(mtcars), multiple = TRUE)
+  ,selectInput("vars_s", "Summarise", names(mtcars))
+  ,selectInput("operation", "Operation", c("median", "mean", "min", "max"))
+  ,actionButton("create_col", "Create Column")
+  ,actionButton("undo", "Undo")
+  ,actionButton("reset", "Reset")
+  ,selectInput("vars_o", "Order by", NULL, multiple = TRUE)
+  ,tableOutput("data")
+)
+
+server <- function(input, output, session) {
+  observe({
+    # updateSelectInput(session, "vars_o", choices = input$vars_g, selected = input$vars_o)
+    if (length(input$vars_g)>0){
+      if (length(names(r_mtcars()))>0){
+        updateSelectInput(session, "vars_o", choices = names(r_mtcars()), selected = input$vars_o)
+        }
+      }
+    })
+  vars_s <- reactiveVal(c())
+  operation <- reactiveVal(c())
+  observeEvent(input$create_col, {
+      if (length(which(operation()[which(input$vars_s==vars_s())]==input$operation)) == 0){
+        vars_s(c(vars_s(),input$vars_s))
+        operation(c(operation(),input$operation))
+        }
+    })
+  observeEvent(input$undo, {
+    if (length(vars_s())==1){
+      vars_s(c())
+      operation(c())
+      } else {
+      vars_s(vars_s()[1:(length(vars_s())-1)])
+      operation(operation()[1:(length(operation())-1)])
+      }
+    })
+  observeEvent(input$reset, {
+    vars_s(c())
+    operation(c())
+    })
+  r_mtcars <- reactive({
+    as.data.table(mtcars)[,.N,eval(input$vars_g)] -> dt
+    
+    if (length(vars_s())>0){
+      for (vars_s_i in 1:length(vars_s())){
+        if (length(operation())>=vars_s_i){
+          as.data.table(mtcars)[,.(eval(parse(text=operation()[vars_s_i]))(eval(parse(text=vars_s()[vars_s_i])))),by=eval(input$vars_g)] -> dt_sum_temp
+          colnames(dt_sum_temp)[length(colnames(dt_sum_temp))] <- paste(vars_s()[vars_s_i],operation()[vars_s_i],sep="_")
+          merge(dt,dt_sum_temp) -> dt
+          }
+        }
+      }
+
+    # Ordering
+      for (idx_order in length(input$vars_g):1){
+        if (idx_order == 0){break}
+        dt[order(eval(parse(text=input$vars_g[idx_order])))] -> dt
+        # paste('print',idx_order,'\n') %>% cat()
+        if (idx_order == 1){'\n' %>% cat()}
+        }
+      if (!is.null(input$vars_o)) {
+        for (idx_order in length(input$vars_o):1){
+          # req(input$vars_o[idx_order]%in%names(dt))
+          if(!input$vars_o[idx_order]%in%names(dt)){break}
+          dt[order(eval(parse(text=input$vars_o[idx_order])))] -> dt
+          }
+        }
+
+    # Output
+      dt %>% return()
+
+    })
+  output$data <- renderTable({
+    r_mtcars()
+    })
+}
+
+# Create Shiny app ----
+shinyApp(ui = ui, server = server)
+```
